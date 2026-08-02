@@ -235,7 +235,7 @@ export default class VaultSyncCollab extends Plugin {
     try {
       const exists = await this.app.vault.adapter.exists(p);
       if (doc.deleted || doc._deleted) {
-        if (exists) { this.applying = true; try { const af = this.app.vault.getAbstractFileByPath(p); if (af) await this.app.vault.trash(af, false); else await this.app.vault.adapter.remove(p); } finally { this.applying = false; } }
+        if (exists) { this.applying = true; try { const af = this.app.vault.getAbstractFileByPath(p); if (af) await this.app.vault.trash(af, false); else await this.app.vault.adapter.remove(p); } finally { this.applying = false; } await this.pruneEmptyParents(p); }
         this.shadow.delete(p); return exists;
       }
       if (!exists) { await this.writeLocal(p, R); this.shadow.set(p, R); return true; }
@@ -257,6 +257,20 @@ export default class VaultSyncCollab extends Plugin {
       else { await this.saveConflictCopy(p, R, doc.mtime || 0, 'server'); await this.putDoc(p, local, lm); }
       return true;
     } catch (e) { console.error('[sync] applyRemote', p, e); return false; }
+  }
+  async pruneEmptyParents(filePath) {
+    // 파일 삭제 후 빈 상위 폴더를 위로 올라가며 정리(휴지통). 다른 파일(.obsidian·첨부 등)이 있으면 안 지움.
+    let dir = filePath.split('/').slice(0, -1).join('/');
+    while (dir) {
+      try {
+        const l = await this.app.vault.adapter.list(dir);
+        if (((l.files || []).length + (l.folders || []).length) > 0) break;   // 안 비었으면 중단
+        this.applying = true;
+        try { const af = this.app.vault.getAbstractFileByPath(dir); if (af) await this.app.vault.trash(af, false); else await this.app.vault.adapter.rmdir(dir, false); }
+        finally { this.applying = false; }
+      } catch (e) { break; }
+      dir = dir.split('/').slice(0, -1).join('/');
+    }
   }
   async ensureParent(path) {
     const parts = path.split('/'); parts.pop(); let cur = '';

@@ -10702,6 +10702,7 @@ var VaultSyncCollab = class extends import_obsidian.Plugin {
           } finally {
             this.applying = false;
           }
+          await this.pruneEmptyParents(p);
         }
         this.shadow.delete(p);
         return exists;
@@ -10748,6 +10749,26 @@ var VaultSyncCollab = class extends import_obsidian.Plugin {
     } catch (e) {
       console.error("[sync] applyRemote", p, e);
       return false;
+    }
+  }
+  async pruneEmptyParents(filePath) {
+    let dir = filePath.split("/").slice(0, -1).join("/");
+    while (dir) {
+      try {
+        const l = await this.app.vault.adapter.list(dir);
+        if ((l.files || []).length + (l.folders || []).length > 0) break;
+        this.applying = true;
+        try {
+          const af = this.app.vault.getAbstractFileByPath(dir);
+          if (af) await this.app.vault.trash(af, false);
+          else await this.app.vault.adapter.rmdir(dir, false);
+        } finally {
+          this.applying = false;
+        }
+      } catch (e) {
+        break;
+      }
+      dir = dir.split("/").slice(0, -1).join("/");
     }
   }
   async ensureParent(path) {
