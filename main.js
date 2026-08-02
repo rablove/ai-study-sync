@@ -11073,6 +11073,45 @@ var VaultSyncCollab = class extends import_obsidian.Plugin {
     const my = `${this.settings.username}\xB7${this.settings.deviceLabel}`;
     return [...this.presence.awareness.getStates().values()].map((s) => s && s.user && s.user.name).filter((n) => n === my).length > 1;
   }
+  // 기기 이름 중복 확인 후 사용 가능하면 그 이름으로 재연결(적용).
+  async checkAndApplyDevice() {
+    if (!this.settings.username || !this.settings.wsUrl) return { ok: false, msg: "\uC544\uC774\uB514\xB7Relay \uC8FC\uC18C\uB97C \uBA3C\uC800 \uC785\uB825\uD558\uC138\uC694" };
+    if (!this.settings.deviceLabel) return { ok: false, msg: "\uAE30\uAE30 \uC774\uB984\uC744 \uC785\uB825\uD558\uC138\uC694" };
+    this.stopPresence();
+    await sleep(300);
+    await this.ensurePresence();
+    if (!this.presence) return { ok: false, msg: "\uC5F0\uACB0 \uC2E4\uD328 \u2014 \uACC4\uC815/\uC8FC\uC18C \uD655\uC778" };
+    await sleep(1200);
+    const target = `${this.settings.username}\xB7${this.settings.deviceLabel}`;
+    const myId = this.presence.awareness.clientID;
+    let taken = false;
+    for (const [cid, st] of this.presence.awareness.getStates()) {
+      if (cid === myId) continue;
+      if (st && st.user && st.user.name === target) {
+        taken = true;
+        break;
+      }
+    }
+    if (taken) return { ok: false, msg: `\u274C '${this.settings.deviceLabel}' \uB294 \uC774\uBBF8 \uC811\uC18D \uC911\uC778 \uAE30\uAE30 \uC774\uB984\uC785\uB2C8\uB2E4 \u2014 \uB2E4\uB978 \uC774\uB984\uC744 \uC4F0\uC138\uC694` };
+    this.endSession();
+    await this.onActiveChange();
+    return { ok: true, msg: `\u2705 '${this.settings.deviceLabel}' \uC0AC\uC6A9 \uAC00\uB2A5 \xB7 \uC801\uC6A9\uB428` };
+  }
+  // 계정(아이디/비번) 바꾼 뒤 재인증 + 재연결.
+  async relogin() {
+    if (!this.settings.username || !this.settings.password) return { ok: false, msg: "\uC544\uC774\uB514\xB7\uBE44\uBC00\uBC88\uD638\uB97C \uC785\uB825\uD558\uC138\uC694" };
+    this._token = null;
+    this._tokenExp = 0;
+    const conn = await this.testConnection();
+    const tok = await this.getToken();
+    this.stopPresence();
+    await this.ensurePresence();
+    this.endSession();
+    await this.onActiveChange();
+    if (!conn.ok) return { ok: false, msg: "\u274C \uC778\uC99D \uC2E4\uD328 \u2014 \uC544\uC774\uB514/\uBE44\uBC00\uBC88\uD638 \uD655\uC778" };
+    this.syncCycle(true);
+    return { ok: !!tok, msg: tok ? `\u2705 '${this.settings.username}' \uB85C \uB85C\uADF8\uC778\xB7\uC7AC\uC5F0\uACB0\uB428` : "\uD30C\uC77C\uB3D9\uAE30\uD654 OK \xB7 \uD611\uC5C5 \uC2E4\uD328(relay/\uACC4\uC815 \uD655\uC778)" };
+  }
   async onActiveChange() {
     if (!this.settings.enabled) return;
     this.updatePresencePath();
@@ -11232,10 +11271,18 @@ var SettingTab = class extends import_obsidian.PluginSettingTab {
     text2("\uBB38\uC11C \uC811\uB450\uC5B4", "", "docPrefix");
     containerEl.createEl("h4", { text: "\u2461 \uC2E4\uC2DC\uAC04 \uD611\uC5C5 (relay)" });
     text2("Relay \uC8FC\uC18C", "\uC608: wss://study-collab.smallws.com", "wsUrl");
-    text2("\uAE30\uAE30 \uC774\uB984", "\uCEE4\uC11C \uAF2C\uB9AC\uD45C (Mac/iPad)", "deviceLabel");
+    text2("\uAE30\uAE30 \uC774\uB984", "\uCEE4\uC11C \uAF2C\uB9AC\uD45C (Mac/iPad)", "deviceLabel").addButton((b) => b.setButtonText("\uC911\uBCF5\uD655\uC778").onClick(async () => {
+      set("\uAE30\uAE30 \uC774\uB984 \uD655\uC778 \uC911\u2026");
+      const r = await this.plugin.checkAndApplyDevice();
+      set(r.msg, r.ok);
+    }));
     new import_obsidian.Setting(containerEl).setName("\uC624\uD504\uB77C\uC778 \uD3B8\uC9D1 \uC7A0\uAE08").setDesc("\uD56D\uC0C1 \uCF1C\uC9D0 \u2014 \uC11C\uBC84 \uC5F0\uACB0\uC774 \uB04A\uAE30\uBA74 \uD3B8\uC9D1\uC774 \uC790\uB3D9\uC73C\uB85C \uC7A0\uAE41\uB2C8\uB2E4(\uBAA8\uBC14\uC77C=\uC77D\uAE30 \uBAA8\uB4DC). \uC5F0\uACB0\uB418\uBA74 \uC790\uB3D9 \uD574\uC81C.");
     containerEl.createEl("h4", { text: "\uACC4\uC815 (\uB458 \uB2E4 \uACF5\uC6A9)" });
-    text2("\uC544\uC774\uB514", "CouchDB \uACC4\uC815", "username");
+    text2("\uC544\uC774\uB514", "CouchDB \uACC4\uC815 \u2014 \uBC14\uAFBC \uB4A4 \u300C\uB85C\uADF8\uC778\u300D", "username").addButton((b) => b.setButtonText("\uB85C\uADF8\uC778").setCta().onClick(async () => {
+      set("\uB85C\uADF8\uC778 \uC911\u2026");
+      const r = await this.plugin.relogin();
+      set(r.msg, r.ok);
+    }));
     text2("\uBE44\uBC00\uBC88\uD638", "", "password", true);
     const line = containerEl.createEl("div", { text: "\uC0C1\uD0DC: \uBBF8\uD655\uC778" });
     line.style.margin = "8px 2px 12px";

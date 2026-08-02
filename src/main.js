@@ -442,6 +442,34 @@ export default class VaultSyncCollab extends Plugin {
   }
   stopPresence() { try { if (this.presence) this.presence.destroy(); } catch (e) {} try { if (this._presenceDoc) this._presenceDoc.destroy(); } catch (e) {} this.presence = null; this._presenceDoc = null; }
   dupDeviceName() { if (!this.presence) return false; const my = `${this.settings.username}·${this.settings.deviceLabel}`; return [...this.presence.awareness.getStates().values()].map(s => s && s.user && s.user.name).filter(n => n === my).length > 1; }
+  // 기기 이름 중복 확인 후 사용 가능하면 그 이름으로 재연결(적용).
+  async checkAndApplyDevice() {
+    if (!this.settings.username || !this.settings.wsUrl) return { ok: false, msg: '아이디·Relay 주소를 먼저 입력하세요' };
+    if (!this.settings.deviceLabel) return { ok: false, msg: '기기 이름을 입력하세요' };
+    this.stopPresence(); await sleep(300);          // 내 옛 presence 정리(오탐 방지)
+    await this.ensurePresence();
+    if (!this.presence) return { ok: false, msg: '연결 실패 — 계정/주소 확인' };
+    await sleep(1200);                               // 다른 기기 상태 수신 대기
+    const target = `${this.settings.username}·${this.settings.deviceLabel}`;
+    const myId = this.presence.awareness.clientID;
+    let taken = false;
+    for (const [cid, st] of this.presence.awareness.getStates()) { if (cid === myId) continue; if (st && st.user && st.user.name === target) { taken = true; break; } }
+    if (taken) return { ok: false, msg: `❌ '${this.settings.deviceLabel}' 는 이미 접속 중인 기기 이름입니다 — 다른 이름을 쓰세요` };
+    this.endSession(); await this.onActiveChange(); // 커서 라벨도 새 이름으로
+    return { ok: true, msg: `✅ '${this.settings.deviceLabel}' 사용 가능 · 적용됨` };
+  }
+  // 계정(아이디/비번) 바꾼 뒤 재인증 + 재연결.
+  async relogin() {
+    if (!this.settings.username || !this.settings.password) return { ok: false, msg: '아이디·비밀번호를 입력하세요' };
+    this._token = null; this._tokenExp = 0;         // 캐시 토큰 폐기
+    const conn = await this.testConnection();        // 파일동기화(CouchDB) 인증
+    const tok = await this.getToken();               // 협업(relay) 재로그인
+    this.stopPresence(); await this.ensurePresence();
+    this.endSession(); await this.onActiveChange();
+    if (!conn.ok) return { ok: false, msg: '❌ 인증 실패 — 아이디/비밀번호 확인' };
+    this.syncCycle(true);
+    return { ok: !!tok, msg: tok ? `✅ '${this.settings.username}' 로 로그인·재연결됨` : '파일동기화 OK · 협업 실패(relay/계정 확인)' };
+  }
 
   async onActiveChange() {
     if (!this.settings.enabled) return;
@@ -508,10 +536,12 @@ class SettingTab extends PluginSettingTab {
     text('문서 접두어', '', 'docPrefix');
     containerEl.createEl('h4', { text: '② 실시간 협업 (relay)' });
     text('Relay 주소', '예: wss://study-collab.smallws.com', 'wsUrl');
-    text('기기 이름', '커서 꼬리표 (Mac/iPad)', 'deviceLabel');
+    text('기기 이름', '커서 꼬리표 (Mac/iPad)', 'deviceLabel')
+      .addButton(b => b.setButtonText('중복확인').onClick(async () => { set('기기 이름 확인 중…'); const r = await this.plugin.checkAndApplyDevice(); set(r.msg, r.ok); }));
     new Setting(containerEl).setName('오프라인 편집 잠금').setDesc('항상 켜짐 — 서버 연결이 끊기면 편집이 자동으로 잠깁니다(모바일=읽기 모드). 연결되면 자동 해제.');
     containerEl.createEl('h4', { text: '계정 (둘 다 공용)' });
-    text('아이디', 'CouchDB 계정', 'username');
+    text('아이디', 'CouchDB 계정 — 바꾼 뒤 「로그인」', 'username')
+      .addButton(b => b.setButtonText('로그인').setCta().onClick(async () => { set('로그인 중…'); const r = await this.plugin.relogin(); set(r.msg, r.ok); }));
     text('비밀번호', '', 'password', true);
 
     const line = containerEl.createEl('div', { text: '상태: 미확인' }); line.style.margin = '8px 2px 12px'; line.style.fontWeight = '600'; line.style.color = 'var(--text-muted)';
