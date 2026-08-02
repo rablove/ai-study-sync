@@ -10515,7 +10515,7 @@ var VaultSyncCollab = class extends import_obsidian.Plugin {
   async putDoc(pNfc, content, mtime) {
     const id2 = this.idFor(pNfc);
     const cur = await this.req("GET", this.docUrl(id2));
-    const doc2 = { _id: id2, path: pNfc, content, mtime, deleted: false };
+    const doc2 = { _id: id2, path: pNfc, content, mtime, deleted: false, lastEditor: this.settings.username };
     if (cur.status === 200 && cur.json && cur.json._rev) doc2._rev = cur.json._rev;
     const put = await this.req("PUT", this.docUrl(id2), doc2);
     if (put.status === 200 || put.status === 201) {
@@ -10883,16 +10883,17 @@ var VaultSyncCollab = class extends import_obsidian.Plugin {
     }
     return null;
   }
+  // 연결 인원 = presence(전체 접속자, 모달 목록과 같은 소스). 노트방 awareness 는 유령/재접속 중복이 껴서 부풀려짐.
   peerCount() {
     try {
-      return this.session ? this.session.provider.awareness.getStates().size : 0;
+      return [...this.presence.awareness.getStates().values()].filter((s) => s && s.user && s.user.name).length;
     } catch (e) {
       return 0;
     }
   }
   peerNames() {
     try {
-      return [...this.session.provider.awareness.getStates().values()].map((s) => s.user && s.user.name || "?");
+      return [...this.presence.awareness.getStates().values()].map((s) => s.user && s.user.name || "?");
     } catch (e) {
       return [];
     }
@@ -11035,6 +11036,7 @@ var VaultSyncCollab = class extends import_obsidian.Plugin {
   }
   onPresenceChange() {
     if (this.following) this.jumpToFollowed();
+    if (!this._lastLock) this.setCollab(this.presence && this.presence.wsconnected ? "\uC5F0\uACB0\uB428\xB7" + this.peerCount() : "\uC5F0\uACB0 \uC548\uB428");
   }
   followScroll(session) {
     try {
@@ -11100,7 +11102,7 @@ var VaultSyncCollab = class extends import_obsidian.Plugin {
     const provider = new WebsocketProvider(this.settings.wsUrl, room, ydoc, { params: { token } });
     const ytext = ydoc.getText("content");
     const label = `${this.settings.username}\xB7${this.settings.deviceLabel}`;
-    provider.awareness.setLocalStateField("user", { name: label, color: this.userColor, colorLight: this.userColor + "33" });
+    provider.awareness.setLocalStateField("user", { name: label, color: this.userColor, colorLight: this.userColor + "33", login: this.settings.username });
     const session = { path, ydoc, provider, ytext, cm, attached: false, saveTimer: null, onSync: null, persist: null };
     this.session = session;
     this.collabPath = nfc(path);

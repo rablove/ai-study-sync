@@ -132,7 +132,7 @@ export default class VaultSyncCollab extends Plugin {
   async putDoc(pNfc, content, mtime) {
     const id = this.idFor(pNfc);
     const cur = await this.req('GET', this.docUrl(id));
-    const doc = { _id: id, path: pNfc, content, mtime, deleted: false };
+    const doc = { _id: id, path: pNfc, content, mtime, deleted: false, lastEditor: this.settings.username };
     if (cur.status === 200 && cur.json && cur.json._rev) doc._rev = cur.json._rev;
     const put = await this.req('PUT', this.docUrl(id), doc);
     if (put.status === 200 || put.status === 201) { this.shadow.set(pNfc, content); return true; }
@@ -315,8 +315,9 @@ export default class VaultSyncCollab extends Plugin {
     } catch (e) { console.error('[collab] auth', e); }
     return null;
   }
-  peerCount() { try { return this.session ? this.session.provider.awareness.getStates().size : 0; } catch (e) { return 0; } }
-  peerNames() { try { return [...this.session.provider.awareness.getStates().values()].map(s => (s.user && s.user.name) || '?'); } catch (e) { return []; } }
+  // 연결 인원 = presence(전체 접속자, 모달 목록과 같은 소스). 노트방 awareness 는 유령/재접속 중복이 껴서 부풀려짐.
+  peerCount() { try { return [...this.presence.awareness.getStates().values()].filter(s => s && s.user && s.user.name).length; } catch (e) { return 0; } }
+  peerNames() { try { return [...this.presence.awareness.getStates().values()].map(s => (s.user && s.user.name) || '?'); } catch (e) { return []; } }
   isOffline() {
     // navigator.onLine 이 확실히 false 면 즉시 오프라인. 그 외엔 실제 서버 핑 결과(netOk)로 판정한다.
     // (iOS Obsidian 웹뷰는 navigator.onLine/offline 이벤트가 안 뜨는 경우가 많아 핑에 의존.)
@@ -421,6 +422,8 @@ export default class VaultSyncCollab extends Plugin {
   onPresenceChange() {
     // 따라가는 사람이 노트를 바꾸면 나도 따라간다.
     if (this.following) this.jumpToFollowed();
+    // presence 가 바뀌면 «연결됨·N» 을 즉시 갱신 (목록과 실시간 일치)
+    if (!this._lastLock) this.setCollab((this.presence && this.presence.wsconnected) ? '연결됨·' + this.peerCount() : '연결 안됨');
   }
   followScroll(session) {
     // 같은 노트 안에서 따라가는 사람의 커서 위치로 화면을 스크롤한다.
@@ -458,7 +461,7 @@ export default class VaultSyncCollab extends Plugin {
     const provider = new WebsocketProvider(this.settings.wsUrl, room, ydoc, { params: { token } });
     const ytext = ydoc.getText('content');
     const label = `${this.settings.username}·${this.settings.deviceLabel}`;
-    provider.awareness.setLocalStateField('user', { name: label, color: this.userColor, colorLight: this.userColor + '33' });
+    provider.awareness.setLocalStateField('user', { name: label, color: this.userColor, colorLight: this.userColor + '33', login: this.settings.username });
     const session = { path, ydoc, provider, ytext, cm, attached: false, saveTimer: null, onSync: null, persist: null };
     this.session = session; this.collabPath = nfc(path);   // ← 파일동기화가 이 노트를 안 건드리게
     provider.on('status', (e) => { if (this.session === session) { this.setCollab(e.status === 'connected' ? '연결됨' : '연결 중…'); this.refreshLock(); } });
