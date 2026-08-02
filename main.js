@@ -10416,6 +10416,12 @@ var VaultSyncCollab = class extends import_obsidian.Plugin {
     this.collabEl.addEventListener("click", () => new ParticipantModal(this.app, this).open());
     this.addRibbonIcon("users", "\uACF5\uB3D9\uD3B8\uC9D1 \uCC38\uC5EC\uC790\xB7\uC5F0\uACB0 \uC0C1\uD0DC", () => new ParticipantModal(this.app, this).open());
     this.addCommand({ id: "sync-now", name: "\uC9C0\uAE08 \uB3D9\uAE30\uD654", callback: () => this.syncCycle(true) });
+    this.addCommand({ id: "resync-deletions", name: "\uC0AD\uC81C\uAE4C\uC9C0 \uB2E4\uC2DC \uB3D9\uAE30\uD654(\uBC00\uB9B0 \uC0AD\uC81C \uBC18\uC601, \uBE44\uD30C\uAD34)", callback: async () => {
+      new import_obsidian.Notice("\uC0AD\uC81C \uD3EC\uD568 \uC804\uCCB4 \uBCC0\uACBD \uB2E4\uC2DC \uD6D1\uB294 \uC911\u2026");
+      this.settings.lastSeq = "0";
+      await this.saveSettings();
+      await this.syncCycle(true);
+    } });
     this.addCommand({ id: "hard-reset", name: "\uCC98\uC74C\uBD80\uD130 \uB2E4\uC2DC \uBC1B\uAE30(\uB85C\uCEEC \uC0AD\uC81C \uD6C4 \uC11C\uBC84\uBCF8\uC73C\uB85C)", callback: () => new ConfirmModal(this.app, "\uCC98\uC74C\uBD80\uD130 \uB2E4\uC2DC \uBC1B\uAE30", "\uC774 \uAE30\uAE30\uC758 \uB85C\uCEEC .md \uB178\uD2B8\uB97C \uC804\uBD80 \uC0AD\uC81C\uD558\uACE0 \uC11C\uBC84 \uCD5C\uC2E0\uBCF8\uC73C\uB85C \uB36E\uC5B4\uC501\uB2C8\uB2E4. \uB418\uB3CC\uB9B4 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uACC4\uC18D\uD560\uAE4C\uC694?", () => this.hardReset()).open() });
     this.addCommand({ id: "collab-status", name: "\uACF5\uB3D9\uD3B8\uC9D1 \uCC38\uC5EC\uC790", callback: () => new ParticipantModal(this.app, this).open() });
     this.addCommand({ id: "net-check", name: "\uC5F0\uACB0 \uC0C1\uD0DC \uD655\uC778(\uC628\uB77C\uC778/\uC624\uD504\uB77C\uC778)", callback: async () => {

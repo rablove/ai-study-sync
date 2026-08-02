@@ -57,6 +57,7 @@ export default class VaultSyncCollab extends Plugin {
     this.addRibbonIcon('users', '공동편집 참여자·연결 상태', () => new ParticipantModal(this.app, this).open());
 
     this.addCommand({ id: 'sync-now', name: '지금 동기화', callback: () => this.syncCycle(true) });
+    this.addCommand({ id: 'resync-deletions', name: '삭제까지 다시 동기화(밀린 삭제 반영, 비파괴)', callback: async () => { new Notice('삭제 포함 전체 변경 다시 훑는 중…'); this.settings.lastSeq = '0'; await this.saveSettings(); await this.syncCycle(true); } });
     this.addCommand({ id: 'hard-reset', name: '처음부터 다시 받기(로컬 삭제 후 서버본으로)', callback: () => new ConfirmModal(this.app, '처음부터 다시 받기', '이 기기의 로컬 .md 노트를 전부 삭제하고 서버 최신본으로 덮어씁니다. 되돌릴 수 없습니다. 계속할까요?', () => this.hardReset()).open() });
     this.addCommand({ id: 'collab-status', name: '공동편집 참여자', callback: () => new ParticipantModal(this.app, this).open() });
     this.addCommand({ id: 'net-check', name: '연결 상태 확인(온라인/오프라인)', callback: async () => { const ok = await this.probeNet(); this.setNet(ok); new Notice(ok ? '🌐 서버 연결됨 (온라인)' : '🔒 서버 연결 안됨 (오프라인 — 편집잠금 대상)', 5000); } });
