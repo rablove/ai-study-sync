@@ -10987,7 +10987,7 @@ var VaultSyncCollab = class extends import_obsidian.Plugin {
     if (!token) return;
     this._presenceDoc = new Doc();
     this.presence = new WebsocketProvider(this.settings.wsUrl, "__presence__", this._presenceDoc, { params: { token } });
-    this.presence.awareness.setLocalStateField("user", { name: `${this.settings.username}\xB7${this.settings.deviceLabel}`, color: this.userColor });
+    this.presence.awareness.setLocalStateField("user", { name: `${this.settings.username}\xB7${this.settings.deviceLabel}`, color: this.userColor, login: this.settings.username, device: this.settings.deviceLabel });
     this.updatePresencePath();
     this.presence.awareness.on("change", () => this.onPresenceChange());
   }
@@ -11073,29 +11073,37 @@ var VaultSyncCollab = class extends import_obsidian.Plugin {
     const my = `${this.settings.username}\xB7${this.settings.deviceLabel}`;
     return [...this.presence.awareness.getStates().values()].map((s) => s && s.user && s.user.name).filter((n) => n === my).length > 1;
   }
-  // 기기 이름 중복 확인 후 사용 가능하면 그 이름으로 재연결(적용).
+  // 기기 이름 중복 확인: 내 계정(login)은 전부 제외하고, "다른 사용자"가 같은 기기 이름을 쓰는지만 본다.
+  // 없으면 사용 가능 → 그 이름으로 재연결(적용).
+  deviceOf(u) {
+    if (!u) return "";
+    if (u.device !== void 0) return u.device;
+    const i = (u.name || "").indexOf("\xB7");
+    return i >= 0 ? u.name.slice(i + 1) : "";
+  }
   async checkAndApplyDevice() {
     if (!this.settings.username || !this.settings.wsUrl) return { ok: false, msg: "\uC544\uC774\uB514\xB7Relay \uC8FC\uC18C\uB97C \uBA3C\uC800 \uC785\uB825\uD558\uC138\uC694" };
     if (!this.settings.deviceLabel) return { ok: false, msg: "\uAE30\uAE30 \uC774\uB984\uC744 \uC785\uB825\uD558\uC138\uC694" };
-    this.stopPresence();
-    await sleep(300);
     await this.ensurePresence();
     if (!this.presence) return { ok: false, msg: "\uC5F0\uACB0 \uC2E4\uD328 \u2014 \uACC4\uC815/\uC8FC\uC18C \uD655\uC778" };
-    await sleep(1200);
-    const target = `${this.settings.username}\xB7${this.settings.deviceLabel}`;
-    const myId = this.presence.awareness.clientID;
-    let taken = false;
-    for (const [cid, st] of this.presence.awareness.getStates()) {
-      if (cid === myId) continue;
-      if (st && st.user && st.user.name === target) {
-        taken = true;
+    await sleep(1e3);
+    const myLogin = this.settings.username, myDevice = this.settings.deviceLabel;
+    let who = "";
+    for (const st of this.presence.awareness.getStates().values()) {
+      const u = st && st.user;
+      if (!u) continue;
+      if ((u.login || "") === myLogin) continue;
+      if (this.deviceOf(u) === myDevice) {
+        who = u.login || u.name || "\uB2E4\uB978 \uC0AC\uC6A9\uC790";
         break;
       }
     }
-    if (taken) return { ok: false, msg: `\u274C '${this.settings.deviceLabel}' \uB294 \uC774\uBBF8 \uC811\uC18D \uC911\uC778 \uAE30\uAE30 \uC774\uB984\uC785\uB2C8\uB2E4 \u2014 \uB2E4\uB978 \uC774\uB984\uC744 \uC4F0\uC138\uC694` };
+    if (who) return { ok: false, msg: `\u274C \uAE30\uAE30 \uC774\uB984 '${myDevice}' \uB294 \uB2E4\uB978 \uC0AC\uC6A9\uC790(${who})\uAC00 \uC0AC\uC6A9 \uC911\uC785\uB2C8\uB2E4 \u2014 \uB2E4\uB978 \uC774\uB984\uC744 \uC4F0\uC138\uC694` };
+    this.stopPresence();
+    await this.ensurePresence();
     this.endSession();
     await this.onActiveChange();
-    return { ok: true, msg: `\u2705 '${this.settings.deviceLabel}' \uC0AC\uC6A9 \uAC00\uB2A5 \xB7 \uC801\uC6A9\uB428` };
+    return { ok: true, msg: `\u2705 \uAE30\uAE30 \uC774\uB984 '${myDevice}' \uC0AC\uC6A9 \uAC00\uB2A5 \xB7 \uC801\uC6A9\uB428` };
   }
   // 계정(아이디/비번) 바꾼 뒤 재인증 + 재연결.
   async relogin() {
@@ -11273,15 +11281,29 @@ var SettingTab = class extends import_obsidian.PluginSettingTab {
     text2("Relay \uC8FC\uC18C", "\uC608: wss://study-collab.smallws.com", "wsUrl");
     text2("\uAE30\uAE30 \uC774\uB984", "\uCEE4\uC11C \uAF2C\uB9AC\uD45C (Mac/iPad)", "deviceLabel").addButton((b) => b.setButtonText("\uC911\uBCF5\uD655\uC778").onClick(async () => {
       set("\uAE30\uAE30 \uC774\uB984 \uD655\uC778 \uC911\u2026");
-      const r = await this.plugin.checkAndApplyDevice();
-      set(r.msg, r.ok);
+      new import_obsidian.Notice("\uAE30\uAE30 \uC774\uB984 \uD655\uC778 \uC911\u2026");
+      try {
+        const r = await this.plugin.checkAndApplyDevice();
+        set(r.msg, r.ok);
+        new import_obsidian.Notice(r.msg);
+      } catch (e) {
+        set("\uC624\uB958: " + (e && e.message), false);
+        new import_obsidian.Notice("\uC911\uBCF5\uD655\uC778 \uC624\uB958: " + (e && e.message));
+      }
     }));
     new import_obsidian.Setting(containerEl).setName("\uC624\uD504\uB77C\uC778 \uD3B8\uC9D1 \uC7A0\uAE08").setDesc("\uD56D\uC0C1 \uCF1C\uC9D0 \u2014 \uC11C\uBC84 \uC5F0\uACB0\uC774 \uB04A\uAE30\uBA74 \uD3B8\uC9D1\uC774 \uC790\uB3D9\uC73C\uB85C \uC7A0\uAE41\uB2C8\uB2E4(\uBAA8\uBC14\uC77C=\uC77D\uAE30 \uBAA8\uB4DC). \uC5F0\uACB0\uB418\uBA74 \uC790\uB3D9 \uD574\uC81C.");
     containerEl.createEl("h4", { text: "\uACC4\uC815 (\uB458 \uB2E4 \uACF5\uC6A9)" });
     text2("\uC544\uC774\uB514", "CouchDB \uACC4\uC815 \u2014 \uBC14\uAFBC \uB4A4 \u300C\uB85C\uADF8\uC778\u300D", "username").addButton((b) => b.setButtonText("\uB85C\uADF8\uC778").setCta().onClick(async () => {
       set("\uB85C\uADF8\uC778 \uC911\u2026");
-      const r = await this.plugin.relogin();
-      set(r.msg, r.ok);
+      new import_obsidian.Notice("\uB85C\uADF8\uC778 \uC911\u2026");
+      try {
+        const r = await this.plugin.relogin();
+        set(r.msg, r.ok);
+        new import_obsidian.Notice(r.msg);
+      } catch (e) {
+        set("\uC624\uB958: " + (e && e.message), false);
+        new import_obsidian.Notice("\uB85C\uADF8\uC778 \uC624\uB958: " + (e && e.message));
+      }
     }));
     text2("\uBE44\uBC00\uBC88\uD638", "", "password", true);
     const line = containerEl.createEl("div", { text: "\uC0C1\uD0DC: \uBBF8\uD655\uC778" });

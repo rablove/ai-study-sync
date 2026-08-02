@@ -387,7 +387,7 @@ export default class VaultSyncCollab extends Plugin {
     const token = await this.getToken(); if (!token) return;
     this._presenceDoc = new Y.Doc();
     this.presence = new WebsocketProvider(this.settings.wsUrl, '__presence__', this._presenceDoc, { params: { token } });
-    this.presence.awareness.setLocalStateField('user', { name: `${this.settings.username}·${this.settings.deviceLabel}`, color: this.userColor });
+    this.presence.awareness.setLocalStateField('user', { name: `${this.settings.username}·${this.settings.deviceLabel}`, color: this.userColor, login: this.settings.username, device: this.settings.deviceLabel });
     this.updatePresencePath();
     this.presence.awareness.on('change', () => this.onPresenceChange());
   }
@@ -442,21 +442,26 @@ export default class VaultSyncCollab extends Plugin {
   }
   stopPresence() { try { if (this.presence) this.presence.destroy(); } catch (e) {} try { if (this._presenceDoc) this._presenceDoc.destroy(); } catch (e) {} this.presence = null; this._presenceDoc = null; }
   dupDeviceName() { if (!this.presence) return false; const my = `${this.settings.username}·${this.settings.deviceLabel}`; return [...this.presence.awareness.getStates().values()].map(s => s && s.user && s.user.name).filter(n => n === my).length > 1; }
-  // 기기 이름 중복 확인 후 사용 가능하면 그 이름으로 재연결(적용).
+  // 기기 이름 중복 확인: 내 계정(login)은 전부 제외하고, "다른 사용자"가 같은 기기 이름을 쓰는지만 본다.
+  // 없으면 사용 가능 → 그 이름으로 재연결(적용).
+  deviceOf(u) { if (!u) return ''; if (u.device !== undefined) return u.device; const i = (u.name || '').indexOf('·'); return i >= 0 ? u.name.slice(i + 1) : ''; }
   async checkAndApplyDevice() {
     if (!this.settings.username || !this.settings.wsUrl) return { ok: false, msg: '아이디·Relay 주소를 먼저 입력하세요' };
     if (!this.settings.deviceLabel) return { ok: false, msg: '기기 이름을 입력하세요' };
-    this.stopPresence(); await sleep(300);          // 내 옛 presence 정리(오탐 방지)
-    await this.ensurePresence();
+    await this.ensurePresence();                     // 없으면 연결(있으면 그대로)
     if (!this.presence) return { ok: false, msg: '연결 실패 — 계정/주소 확인' };
-    await sleep(1200);                               // 다른 기기 상태 수신 대기
-    const target = `${this.settings.username}·${this.settings.deviceLabel}`;
-    const myId = this.presence.awareness.clientID;
-    let taken = false;
-    for (const [cid, st] of this.presence.awareness.getStates()) { if (cid === myId) continue; if (st && st.user && st.user.name === target) { taken = true; break; } }
-    if (taken) return { ok: false, msg: `❌ '${this.settings.deviceLabel}' 는 이미 접속 중인 기기 이름입니다 — 다른 이름을 쓰세요` };
-    this.endSession(); await this.onActiveChange(); // 커서 라벨도 새 이름으로
-    return { ok: true, msg: `✅ '${this.settings.deviceLabel}' 사용 가능 · 적용됨` };
+    await sleep(1000);                               // 다른 기기 상태 수신 대기
+    const myLogin = this.settings.username, myDevice = this.settings.deviceLabel;
+    let who = '';
+    for (const st of this.presence.awareness.getStates().values()) {
+      const u = st && st.user; if (!u) continue;
+      if ((u.login || '') === myLogin) continue;      // 내 계정 상태는 제외(나 자신)
+      if (this.deviceOf(u) === myDevice) { who = u.login || u.name || '다른 사용자'; break; }
+    }
+    if (who) return { ok: false, msg: `❌ 기기 이름 '${myDevice}' 는 다른 사용자(${who})가 사용 중입니다 — 다른 이름을 쓰세요` };
+    this.stopPresence(); await this.ensurePresence(); // 새 이름으로 재등록
+    this.endSession(); await this.onActiveChange();   // 커서 라벨도 새 이름으로
+    return { ok: true, msg: `✅ 기기 이름 '${myDevice}' 사용 가능 · 적용됨` };
   }
   // 계정(아이디/비번) 바꾼 뒤 재인증 + 재연결.
   async relogin() {
@@ -537,11 +542,11 @@ class SettingTab extends PluginSettingTab {
     containerEl.createEl('h4', { text: '② 실시간 협업 (relay)' });
     text('Relay 주소', '예: wss://study-collab.smallws.com', 'wsUrl');
     text('기기 이름', '커서 꼬리표 (Mac/iPad)', 'deviceLabel')
-      .addButton(b => b.setButtonText('중복확인').onClick(async () => { set('기기 이름 확인 중…'); const r = await this.plugin.checkAndApplyDevice(); set(r.msg, r.ok); }));
+      .addButton(b => b.setButtonText('중복확인').onClick(async () => { set('기기 이름 확인 중…'); new Notice('기기 이름 확인 중…'); try { const r = await this.plugin.checkAndApplyDevice(); set(r.msg, r.ok); new Notice(r.msg); } catch (e) { set('오류: ' + (e && e.message), false); new Notice('중복확인 오류: ' + (e && e.message)); } }));
     new Setting(containerEl).setName('오프라인 편집 잠금').setDesc('항상 켜짐 — 서버 연결이 끊기면 편집이 자동으로 잠깁니다(모바일=읽기 모드). 연결되면 자동 해제.');
     containerEl.createEl('h4', { text: '계정 (둘 다 공용)' });
     text('아이디', 'CouchDB 계정 — 바꾼 뒤 「로그인」', 'username')
-      .addButton(b => b.setButtonText('로그인').setCta().onClick(async () => { set('로그인 중…'); const r = await this.plugin.relogin(); set(r.msg, r.ok); }));
+      .addButton(b => b.setButtonText('로그인').setCta().onClick(async () => { set('로그인 중…'); new Notice('로그인 중…'); try { const r = await this.plugin.relogin(); set(r.msg, r.ok); new Notice(r.msg); } catch (e) { set('오류: ' + (e && e.message), false); new Notice('로그인 오류: ' + (e && e.message)); } }));
     text('비밀번호', '', 'password', true);
 
     const line = containerEl.createEl('div', { text: '상태: 미확인' }); line.style.margin = '8px 2px 12px'; line.style.fontWeight = '600'; line.style.color = 'var(--text-muted)';
