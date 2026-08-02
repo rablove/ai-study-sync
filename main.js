@@ -10693,7 +10693,8 @@ var VaultSyncCollab = class extends import_obsidian.Plugin {
     }
   }
   async applyRemote(doc2) {
-    const p = doc2.path || doc2._id;
+    const _pfx = this.settings.docPrefix || "";
+    const p = doc2.path || (doc2._id && doc2._id.indexOf(_pfx) === 0 ? doc2._id.slice(_pfx.length) : doc2._id);
     if (!p.endsWith(".md")) return false;
     if (nfc(p) === this.collabPath) return false;
     const R = doc2.content || "";

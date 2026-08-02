@@ -233,7 +233,9 @@ export default class VaultSyncCollab extends Plugin {
     }
   }
   async applyRemote(doc) {
-    const p = doc.path || doc._id;
+    // 삭제 tombstone 은 path 가 없다 → _id 에서 접두어(cvs:)를 벗겨 실제 로컬 경로를 얻는다.
+    const _pfx = this.settings.docPrefix || '';
+    const p = doc.path || ((doc._id && doc._id.indexOf(_pfx) === 0) ? doc._id.slice(_pfx.length) : doc._id);
     if (!p.endsWith('.md')) return false;
     if (nfc(p) === this.collabPath) return false;   // 협업 중인 노트 → relay(Yjs)가 소유, 건드리지 않음
     const R = doc.content || '';
