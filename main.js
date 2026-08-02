@@ -10603,6 +10603,45 @@ var VaultSyncCollab = class extends import_obsidian.Plugin {
       this.syncing = false;
     }
   }
+  // 연결 시 전체 당겨받기: 서버의 모든 cvs: 문서를 받아 로컬에 없거나 다른 것만 기록(비파괴).
+  // lastSeq 상태·longpoll 진행 여부와 무관하게 "누르면 파일이 온다"를 보장한다.
+  async pullAllFromServer() {
+    if (!this.configured()) return 0;
+    while (this.syncing) await sleep(50);
+    this.syncing = true;
+    this.setSync("\uD30C\uC77C \uBC1B\uB294 \uC911\u2026");
+    try {
+      const prefix = this.settings.docPrefix || "";
+      const hi = prefix.slice(0, -1) + String.fromCharCode(prefix.charCodeAt(prefix.length - 1) + 1);
+      const q = `${this.dbPath("_all_docs")}?include_docs=true&startkey=${encodeURIComponent(JSON.stringify(prefix))}&endkey=${encodeURIComponent(JSON.stringify(hi))}`;
+      const res = await this.req("GET", q);
+      if (res.status !== 200 || !res.json || !Array.isArray(res.json.rows)) {
+        this.setSync("\uC624\uB958 " + res.status);
+        return 0;
+      }
+      let n = 0;
+      for (const row of res.json.rows) {
+        const d = row.doc;
+        if (d && await this.applyRemote(d)) n++;
+      }
+      try {
+        const info = await this.req("GET", encodeURIComponent(this.settings.dbName));
+        if (info.status === 200 && info.json && info.json.update_seq !== void 0) {
+          this.settings.lastSeq = info.json.update_seq;
+          await this.saveSettings();
+        }
+      } catch (e) {
+      }
+      this.setSync(n ? `\uBC1B\uC74C ${n}` : "ok");
+      return n;
+    } catch (e) {
+      this.setSync("\uC624\uB958");
+      console.error("[sync] pullAll", e);
+      return 0;
+    } finally {
+      this.syncing = false;
+    }
+  }
   async longPollLoop() {
     while (this._rtRunning) {
       if (!this.configured()) {
@@ -11209,10 +11248,11 @@ var SettingTab = class extends import_obsidian.PluginSettingTab {
       const r = await this.plugin.testConnection();
       if (!r.ok) return set("\u274C \uD30C\uC77C\uB3D9\uAE30\uD654: " + r.msg, false);
       const tok = await this.plugin.getToken();
-      set(`\u2705 \uD30C\uC77C\uB3D9\uAE30\uD654 OK \xB7 \uD611\uC5C5 ${tok ? "OK" : "(relay \uC8FC\uC18C/\uACC4\uC815 \uD655\uC778)"}`, !!tok);
-      this.plugin.syncCycle(true);
+      set("\uD30C\uC77C \uBC1B\uB294 \uC911\u2026");
       this.plugin.stopPresence();
       this.plugin.ensurePresence();
+      const n = await this.plugin.pullAllFromServer();
+      set(`\u2705 \uD30C\uC77C ${n}\uAC1C \uBC18\uC601 \xB7 \uD611\uC5C5 ${tok ? "OK" : "(relay \uC8FC\uC18C/\uACC4\uC815 \uD655\uC778)"}`, !!tok);
     }));
     new import_obsidian.Setting(containerEl).setName("\uCC98\uC74C\uBD80\uD130 \uB2E4\uC2DC \uBC1B\uAE30").setDesc("\u26A0\uFE0F \uC774 \uAE30\uAE30\uC758 \uB85C\uCEEC \uB178\uD2B8(.md)\uB97C \uC804\uBD80 \uC9C0\uC6B0\uACE0 \uC11C\uBC84 \uCD5C\uC2E0\uBCF8\uC73C\uB85C \uD1B5\uC9F8\uB85C \uAC08\uC544\uC5CE\uC2B5\uB2C8\uB2E4.").addButton((b) => b.setButtonText("\uB9AC\uC14B").setWarning().onClick(() => {
       new ConfirmModal(

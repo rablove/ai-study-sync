@@ -189,6 +189,26 @@ export default class VaultSyncCollab extends Plugin {
     } catch (e) { this.setSync('오류'); console.error('[sync] cycle', e); if (manual) new Notice('동기화 실패'); }
     finally { this.syncing = false; }
   }
+  // 연결 시 전체 당겨받기: 서버의 모든 cvs: 문서를 받아 로컬에 없거나 다른 것만 기록(비파괴).
+  // lastSeq 상태·longpoll 진행 여부와 무관하게 "누르면 파일이 온다"를 보장한다.
+  async pullAllFromServer() {
+    if (!this.configured()) return 0;
+    while (this.syncing) await sleep(50);
+    this.syncing = true; this.setSync('파일 받는 중…');
+    try {
+      const prefix = this.settings.docPrefix || '';
+      const hi = prefix.slice(0, -1) + String.fromCharCode(prefix.charCodeAt(prefix.length - 1) + 1);
+      const q = `${this.dbPath('_all_docs')}?include_docs=true&startkey=${encodeURIComponent(JSON.stringify(prefix))}&endkey=${encodeURIComponent(JSON.stringify(hi))}`;
+      const res = await this.req('GET', q);
+      if (res.status !== 200 || !res.json || !Array.isArray(res.json.rows)) { this.setSync('오류 ' + res.status); return 0; }
+      let n = 0;
+      for (const row of res.json.rows) { const d = row.doc; if (d && await this.applyRemote(d)) n++; }
+      try { const info = await this.req('GET', encodeURIComponent(this.settings.dbName)); if (info.status === 200 && info.json && info.json.update_seq !== undefined) { this.settings.lastSeq = info.json.update_seq; await this.saveSettings(); } } catch (e) {}
+      this.setSync(n ? `받음 ${n}` : 'ok');
+      return n;
+    } catch (e) { this.setSync('오류'); console.error('[sync] pullAll', e); return 0; }
+    finally { this.syncing = false; }
+  }
   async longPollLoop() {
     while (this._rtRunning) {
       if (!this.configured()) { await sleep(3000); continue; }
@@ -498,8 +518,10 @@ class SettingTab extends PluginSettingTab {
       const r = await this.plugin.testConnection();
       if (!r.ok) return set('❌ 파일동기화: ' + r.msg, false);
       const tok = await this.plugin.getToken();
-      set(`✅ 파일동기화 OK · 협업 ${tok ? 'OK' : '(relay 주소/계정 확인)'}`, !!tok);
-      this.plugin.syncCycle(true); this.plugin.stopPresence(); this.plugin.ensurePresence();
+      set('파일 받는 중…');
+      this.plugin.stopPresence(); this.plugin.ensurePresence();
+      const n = await this.plugin.pullAllFromServer();
+      set(`✅ 파일 ${n}개 반영 · 협업 ${tok ? 'OK' : '(relay 주소/계정 확인)'}`, !!tok);
     }));
     new Setting(containerEl).setName('처음부터 다시 받기')
       .setDesc('⚠️ 이 기기의 로컬 노트(.md)를 전부 지우고 서버 최신본으로 통째로 갈아엎습니다.')
