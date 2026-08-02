@@ -387,7 +387,7 @@ export default class VaultSyncCollab extends Plugin {
     const token = await this.getToken(); if (!token) return;
     this._presenceDoc = new Y.Doc();
     this.presence = new WebsocketProvider(this.settings.wsUrl, '__presence__', this._presenceDoc, { params: { token } });
-    this.presence.awareness.setLocalStateField('user', { name: `${this.settings.username}·${this.settings.deviceLabel}`, color: this.userColor, login: this.settings.username, device: this.settings.deviceLabel });
+    this.presence.awareness.setLocalStateField('user', { name: `${this.settings.username}·${this.settings.deviceLabel}`, color: this.userColor, login: this.settings.username, device: this.settings.deviceLabel, deviceId: this.settings.deviceId });
     this.updatePresencePath();
     this.presence.awareness.on('change', () => this.onPresenceChange());
   }
@@ -451,14 +451,14 @@ export default class VaultSyncCollab extends Plugin {
     await this.ensurePresence();                     // 없으면 연결(있으면 그대로)
     if (!this.presence) return { ok: false, msg: '연결 실패 — 계정/주소 확인' };
     await sleep(1000);                               // 다른 기기 상태 수신 대기
-    const myLogin = this.settings.username, myDevice = this.settings.deviceLabel;
+    const myDevice = this.settings.deviceLabel, myId = this.settings.deviceId;
     let who = '';
     for (const st of this.presence.awareness.getStates().values()) {
       const u = st && st.user; if (!u) continue;
-      if ((u.login || '') === myLogin) continue;      // 내 계정 상태는 제외(나 자신)
-      if (this.deviceOf(u) === myDevice) { who = u.login || u.name || '다른 사용자'; break; }
+      if ((u.deviceId || '') === myId) continue;      // 바로 이 기기(나 자신)만 제외 — 다른 기기는 같은 계정이라도 검사
+      if (this.deviceOf(u) === myDevice) { who = u.name || u.login || '다른 기기'; break; }
     }
-    if (who) return { ok: false, msg: `❌ 기기 이름 '${myDevice}' 는 다른 사용자(${who})가 사용 중입니다 — 다른 이름을 쓰세요` };
+    if (who) return { ok: false, msg: `❌ 기기 이름 '${myDevice}' 는 다른 기기(${who})가 사용 중입니다 — 다른 이름을 쓰세요` };
     this.stopPresence(); await this.ensurePresence(); // 새 이름으로 재등록
     this.endSession(); await this.onActiveChange();   // 커서 라벨도 새 이름으로
     return { ok: true, msg: `✅ 기기 이름 '${myDevice}' 사용 가능 · 적용됨` };

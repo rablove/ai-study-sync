@@ -10987,7 +10987,7 @@ var VaultSyncCollab = class extends import_obsidian.Plugin {
     if (!token) return;
     this._presenceDoc = new Doc();
     this.presence = new WebsocketProvider(this.settings.wsUrl, "__presence__", this._presenceDoc, { params: { token } });
-    this.presence.awareness.setLocalStateField("user", { name: `${this.settings.username}\xB7${this.settings.deviceLabel}`, color: this.userColor, login: this.settings.username, device: this.settings.deviceLabel });
+    this.presence.awareness.setLocalStateField("user", { name: `${this.settings.username}\xB7${this.settings.deviceLabel}`, color: this.userColor, login: this.settings.username, device: this.settings.deviceLabel, deviceId: this.settings.deviceId });
     this.updatePresencePath();
     this.presence.awareness.on("change", () => this.onPresenceChange());
   }
@@ -11087,18 +11087,18 @@ var VaultSyncCollab = class extends import_obsidian.Plugin {
     await this.ensurePresence();
     if (!this.presence) return { ok: false, msg: "\uC5F0\uACB0 \uC2E4\uD328 \u2014 \uACC4\uC815/\uC8FC\uC18C \uD655\uC778" };
     await sleep(1e3);
-    const myLogin = this.settings.username, myDevice = this.settings.deviceLabel;
+    const myDevice = this.settings.deviceLabel, myId = this.settings.deviceId;
     let who = "";
     for (const st of this.presence.awareness.getStates().values()) {
       const u = st && st.user;
       if (!u) continue;
-      if ((u.login || "") === myLogin) continue;
+      if ((u.deviceId || "") === myId) continue;
       if (this.deviceOf(u) === myDevice) {
-        who = u.login || u.name || "\uB2E4\uB978 \uC0AC\uC6A9\uC790";
+        who = u.name || u.login || "\uB2E4\uB978 \uAE30\uAE30";
         break;
       }
     }
-    if (who) return { ok: false, msg: `\u274C \uAE30\uAE30 \uC774\uB984 '${myDevice}' \uB294 \uB2E4\uB978 \uC0AC\uC6A9\uC790(${who})\uAC00 \uC0AC\uC6A9 \uC911\uC785\uB2C8\uB2E4 \u2014 \uB2E4\uB978 \uC774\uB984\uC744 \uC4F0\uC138\uC694` };
+    if (who) return { ok: false, msg: `\u274C \uAE30\uAE30 \uC774\uB984 '${myDevice}' \uB294 \uB2E4\uB978 \uAE30\uAE30(${who})\uAC00 \uC0AC\uC6A9 \uC911\uC785\uB2C8\uB2E4 \u2014 \uB2E4\uB978 \uC774\uB984\uC744 \uC4F0\uC138\uC694` };
     this.stopPresence();
     await this.ensurePresence();
     this.endSession();
