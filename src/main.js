@@ -24,7 +24,10 @@ const DEFAULTS = {
   enabled: true,
   lastSeq: '0',
   deviceId: '',
+  autoUpdate: true,   // 시작·재연결 시 GitHub 최신 릴리스로 자동 업데이트
+  ghToken: '',        // 비공개 repo 자체업데이트용(공개 repo 는 불필요)
 };
+const UPDATE_REPO = 'rablove/ai-study-sync';   // 자체 업데이트 대상(공개 repo)
 const nfc = (s) => s.normalize('NFC');
 const b64 = (s) => btoa(unescape(encodeURIComponent(s)));
 const b64url = (s) => btoa(unescape(encodeURIComponent(s))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -78,6 +81,8 @@ export default class VaultSyncCollab extends Plugin {
       // 모바일(navigator.onLine 안 믿김) 대비: 잠금 켜져 있으면 서버 핑으로 오프라인 감지
       this.registerInterval(window.setInterval(() => this.lockWatch(), 5000));
       this.onActiveChange(); this.ensurePresence();
+      setTimeout(() => this.checkSelfUpdate(), 4000);   // 시작 시 자동 업데이트 확인(온라인이면)
+      this.registerInterval(window.setInterval(() => this.checkSelfUpdate(), 60 * 60 * 1000));   // 켜둔 채로도 1시간마다
     });
   }
   onunload() { this._rtRunning = false; try { this.applyViewLock(false); } catch (e) {} this.endSession(); this.stopPresence(); }
@@ -363,7 +368,45 @@ export default class VaultSyncCollab extends Plugin {
       new Notice(ok ? '🌐 온라인 — 편집 가능' : '🔒 오프라인 — 편집이 잠겼습니다', 4000);
     }
     this.refreshLock();
-    if (changed && ok) this.syncCycle(true);   // 복구되면 바로 서버 변경분 당겨받기
+    if (changed && ok) { this.syncCycle(true); this.checkSelfUpdate(); }   // 복구되면 서버 변경분 당김 + 자동 업데이트
+  }
+  // ── 자체 자동 업데이트 (BRAT 설정 불필요) ──
+  _isNewer(a, b) {   // a > b ?
+    const pa = String(a).replace(/^v/, '').split('.').map(n => parseInt(n) || 0);
+    const pb = String(b).replace(/^v/, '').split('.').map(n => parseInt(n) || 0);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) { const x = pa[i] || 0, y = pb[i] || 0; if (x !== y) return x > y; }
+    return false;
+  }
+  async checkSelfUpdate() {
+    try {
+      if (!this.settings.autoUpdate || this._updating) return;
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+      const now = Date.now();
+      if (this._lastUpd && now - this._lastUpd < 15 * 60 * 1000) return;   // 15분 쿨다운
+      this._lastUpd = now;
+      const hdr = { 'Accept': 'application/vnd.github+json' };
+      if (this.settings.ghToken) hdr['Authorization'] = 'token ' + this.settings.ghToken;
+      const rel = await requestUrl({ url: `https://api.github.com/repos/${UPDATE_REPO}/releases/latest`, headers: hdr, throw: false });
+      if (rel.status !== 200 || !rel.json) return;
+      const latest = String(rel.json.tag_name || '').replace(/^v/, '');
+      if (!latest || !this._isNewer(latest, this.manifest.version)) return;
+      this._updating = true;
+      const assets = rel.json.assets || [];
+      const grab = async (name) => {
+        const a = assets.find((x) => x.name === name); if (!a) return null;
+        const priv = !!this.settings.ghToken;
+        const h = priv ? { 'Authorization': 'token ' + this.settings.ghToken, 'Accept': 'application/octet-stream' } : {};
+        const r = await requestUrl({ url: priv ? a.url : a.browser_download_url, headers: h, throw: false });
+        return r.status === 200 ? r.text : null;
+      };
+      const mainJs = await grab('main.js'); const manJson = await grab('manifest.json');
+      if (!mainJs || !manJson) { this._updating = false; return; }
+      const dir = `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
+      await this.app.vault.adapter.write(`${dir}/manifest.json`, manJson);
+      await this.app.vault.adapter.write(`${dir}/main.js`, mainJs);
+      new Notice(`🔄 플러그인 업데이트 ${this.manifest.version} → ${latest} · 적용 중…`, 6000);
+      setTimeout(async () => { try { await this.app.plugins.disablePlugin(this.manifest.id); await this.app.plugins.enablePlugin(this.manifest.id); } catch (e) { this._updating = false; } }, 900);
+    } catch (e) { this._updating = false; }
   }
   refreshLock() {
     const lock = this.settings.enabled && this.isOffline();   // 오프라인이면 항상 편집 잠금(별도 활성화 불필요)
@@ -562,6 +605,11 @@ class SettingTab extends PluginSettingTab {
     text('아이디', 'CouchDB 계정 — 바꾼 뒤 「로그인」', 'username')
       .addButton(b => b.setButtonText('로그인').setCta().onClick(async () => { set('로그인 중…'); new Notice('로그인 중…'); try { const r = await this.plugin.relogin(); set(r.msg, r.ok); new Notice(r.msg); } catch (e) { set('오류: ' + (e && e.message), false); new Notice('로그인 오류: ' + (e && e.message)); } }));
     text('비밀번호', '', 'password', true);
+
+    containerEl.createEl('h4', { text: '자동 업데이트' });
+    new Setting(containerEl).setName('플러그인 자동 업데이트').setDesc('시작 시·인터넷 재연결 시 최신 버전으로 자동 반영(공개 repo). 별도 설정 불필요.')
+      .addToggle(t => t.setValue(!!s.autoUpdate).onChange(async v => { s.autoUpdate = v; await this.plugin.saveSettings(); if (v) this.plugin.checkSelfUpdate(); }));
+    new Setting(containerEl).setName('지금 업데이트 확인').addButton(b => b.setButtonText('확인').onClick(async () => { set('업데이트 확인 중…'); this.plugin._lastUpd = 0; await this.plugin.checkSelfUpdate(); set('업데이트 확인 완료(최신이면 변화 없음)'); }));
 
     const line = containerEl.createEl('div', { text: '상태: 미확인' }); line.style.margin = '8px 2px 12px'; line.style.fontWeight = '600'; line.style.color = 'var(--text-muted)';
     const set = (m, ok) => { line.setText(m); line.style.color = ok === true ? 'var(--text-success)' : ok === false ? 'var(--text-error)' : 'var(--text-muted)'; };
