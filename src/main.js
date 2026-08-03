@@ -62,13 +62,13 @@ export default class VaultSyncCollab extends Plugin {
     this.addCommand({ id: 'collab-status', name: '공동편집 참여자', callback: () => new ParticipantModal(this.app, this).open() });
     this.addCommand({ id: 'net-check', name: '연결 상태 확인(온라인/오프라인)', callback: async () => { const ok = await this.probeNet(); this.setNet(ok); new Notice(ok ? '🌐 서버 연결됨 (온라인)' : '🔒 서버 연결 안됨 (오프라인 — 편집잠금 대상)', 5000); } });
 
-    this.app.workspace.onLayoutReady(() => {
+    this.app.workspace.onLayoutReady(async () => {
       // 파일동기화 이벤트
       this.registerEvent(this.app.vault.on('modify', (f) => this.onLocal(f)));
       this.registerEvent(this.app.vault.on('create', (f) => this.onLocal(f)));
       this.registerEvent(this.app.vault.on('delete', (f) => this.onLocalDelete(f.path)));
       this.registerEvent(this.app.vault.on('rename', (f, oldPath) => this.onLocalRename(f, oldPath)));
-      this.syncCycle();
+      await this.gatedSync();   // 처음 들어올 때: 전체 동기화 끝날 때까지 편집 잠금
       this._rtRunning = true; this.longPollLoop();
       this.registerInterval(window.setInterval(() => this.syncCycle(), 60000));
       // 협업 이벤트
@@ -214,6 +214,17 @@ export default class VaultSyncCollab extends Plugin {
       return n;
     } catch (e) { this.setSync('오류'); console.error('[sync] pullAll', e); return 0; }
     finally { this.syncing = false; }
+  }
+  // 동기화 게이트: 처음/재접속 시 전체 동기화가 끝날 때까지 편집을 잠근다(모달+readonly).
+  //  밀린 변경이 대량으로 들어오는 도중 사용자가 편집해 노트가 깨지는 걸 막는다.
+  async gatedSync() {
+    if (this._gating || !this.configured() || this.isOffline()) return;
+    this._gating = true; this.refreshLock();          // 편집 잠금
+    let modal = null;
+    const t = setTimeout(() => { try { modal = new SyncGateModal(this.app); modal.open(); } catch (e) {} }, 600);   // 오래 걸릴 때만 모달
+    try { await this.pullAllFromServer(); } catch (e) {}   // 전체 문서 catch-up (실시간 가능 지점까지)
+    clearTimeout(t); if (modal) { try { modal.close(); } catch (e) {} }
+    this._gating = false; this.refreshLock();         // 편집 해제
   }
   async longPollLoop() {
     while (this._rtRunning) {
@@ -371,7 +382,7 @@ export default class VaultSyncCollab extends Plugin {
       new Notice(ok ? '🌐 온라인 — 편집 가능' : '🔒 오프라인 — 편집이 잠겼습니다', 4000);
     }
     this.refreshLock();
-    if (changed && ok) { this.syncCycle(true); this.checkSelfUpdate(); }   // 복구되면 서버 변경분 당김 + 자동 업데이트
+    if (changed && ok) { this.gatedSync(); this.checkSelfUpdate(); }   // 재접속 시 전체 catch-up 동안 편집 잠금 + 자동 업데이트
   }
   // ── 자체 자동 업데이트 (BRAT 설정 불필요) ──
   _isNewer(a, b) {   // a > b ?
@@ -412,7 +423,7 @@ export default class VaultSyncCollab extends Plugin {
     } catch (e) { this._updating = false; }
   }
   refreshLock() {
-    const lock = this.settings.enabled && this.isOffline();   // 오프라인이면 항상 편집 잠금(별도 활성화 불필요)
+    const lock = this.settings.enabled && (this.isOffline() || this._gating);   // 오프라인·초기동기화(게이트) 중이면 편집 잠금
     // 모바일: CM readOnly 가 iOS 웹뷰에선 입력을 못 막는다. 그래서 노트를 «읽기 모드」로 강제 전환한다
     //  → 읽기 모드는 편집기가 아니라 렌더링 뷰라 어떤 플랫폼에서도 편집이 불가능하다. (cm 핸들 불필요)
     if (Platform.isMobile) this.applyViewLock(lock);
@@ -638,6 +649,16 @@ class SettingTab extends PluginSettingTab {
   }
 }
 
+class SyncGateModal extends Modal {
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.createEl('h3', { text: '🔄 동기화 중' });
+    contentEl.createEl('p', { text: '다른 기기의 변경사항을 받아오는 중입니다. 완료되면 편집할 수 있습니다.' });
+    const s = contentEl.createEl('p', { text: '잠시만 기다려주세요…' });
+    s.style.color = 'var(--text-muted)';
+  }
+  onClose() { this.contentEl.empty(); }
+}
 class ConfirmModal extends Modal {
   constructor(app, title, body, onYes) { super(app); this.t = title; this.b = body; this.onYes = onYes; }
   onOpen() {

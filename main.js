@@ -10429,12 +10429,12 @@ var VaultSyncCollab = class extends import_obsidian.Plugin {
       this.setNet(ok);
       new import_obsidian.Notice(ok ? "\u{1F310} \uC11C\uBC84 \uC5F0\uACB0\uB428 (\uC628\uB77C\uC778)" : "\u{1F512} \uC11C\uBC84 \uC5F0\uACB0 \uC548\uB428 (\uC624\uD504\uB77C\uC778 \u2014 \uD3B8\uC9D1\uC7A0\uAE08 \uB300\uC0C1)", 5e3);
     } });
-    this.app.workspace.onLayoutReady(() => {
+    this.app.workspace.onLayoutReady(async () => {
       this.registerEvent(this.app.vault.on("modify", (f) => this.onLocal(f)));
       this.registerEvent(this.app.vault.on("create", (f) => this.onLocal(f)));
       this.registerEvent(this.app.vault.on("delete", (f) => this.onLocalDelete(f.path)));
       this.registerEvent(this.app.vault.on("rename", (f, oldPath) => this.onLocalRename(f, oldPath)));
-      this.syncCycle();
+      await this.gatedSync();
       this._rtRunning = true;
       this.longPollLoop();
       this.registerInterval(window.setInterval(() => this.syncCycle(), 6e4));
@@ -10654,6 +10654,34 @@ var VaultSyncCollab = class extends import_obsidian.Plugin {
     } finally {
       this.syncing = false;
     }
+  }
+  // 동기화 게이트: 처음/재접속 시 전체 동기화가 끝날 때까지 편집을 잠근다(모달+readonly).
+  //  밀린 변경이 대량으로 들어오는 도중 사용자가 편집해 노트가 깨지는 걸 막는다.
+  async gatedSync() {
+    if (this._gating || !this.configured() || this.isOffline()) return;
+    this._gating = true;
+    this.refreshLock();
+    let modal = null;
+    const t = setTimeout(() => {
+      try {
+        modal = new SyncGateModal(this.app);
+        modal.open();
+      } catch (e) {
+      }
+    }, 600);
+    try {
+      await this.pullAllFromServer();
+    } catch (e) {
+    }
+    clearTimeout(t);
+    if (modal) {
+      try {
+        modal.close();
+      } catch (e) {
+      }
+    }
+    this._gating = false;
+    this.refreshLock();
   }
   async longPollLoop() {
     while (this._rtRunning) {
@@ -10966,7 +10994,7 @@ var VaultSyncCollab = class extends import_obsidian.Plugin {
     }
     this.refreshLock();
     if (changed && ok) {
-      this.syncCycle(true);
+      this.gatedSync();
       this.checkSelfUpdate();
     }
   }
@@ -11026,7 +11054,7 @@ var VaultSyncCollab = class extends import_obsidian.Plugin {
     }
   }
   refreshLock() {
-    const lock = this.settings.enabled && this.isOffline();
+    const lock = this.settings.enabled && (this.isOffline() || this._gating);
     if (import_obsidian.Platform.isMobile) this.applyViewLock(lock);
     const view = this.app.workspace.getActiveViewOfType(import_obsidian.MarkdownView);
     const cm = view && view.editor && view.editor.cm;
@@ -11438,6 +11466,18 @@ var SettingTab = class extends import_obsidian.PluginSettingTab {
         () => this.plugin.hardReset()
       ).open();
     }));
+  }
+};
+var SyncGateModal = class extends import_obsidian.Modal {
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.createEl("h3", { text: "\u{1F504} \uB3D9\uAE30\uD654 \uC911" });
+    contentEl.createEl("p", { text: "\uB2E4\uB978 \uAE30\uAE30\uC758 \uBCC0\uACBD\uC0AC\uD56D\uC744 \uBC1B\uC544\uC624\uB294 \uC911\uC785\uB2C8\uB2E4. \uC644\uB8CC\uB418\uBA74 \uD3B8\uC9D1\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4." });
+    const s = contentEl.createEl("p", { text: "\uC7A0\uC2DC\uB9CC \uAE30\uB2E4\uB824\uC8FC\uC138\uC694\u2026" });
+    s.style.color = "var(--text-muted)";
+  }
+  onClose() {
+    this.contentEl.empty();
   }
 };
 var ConfirmModal = class extends import_obsidian.Modal {
