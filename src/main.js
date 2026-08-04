@@ -616,9 +616,10 @@ class SettingTab extends PluginSettingTab {
       .addButton(b => b.setButtonText('중복확인').onClick(async () => { set('기기 이름 확인 중…'); new Notice('기기 이름 확인 중…'); try { const r = await this.plugin.checkAndApplyDevice(); set(r.msg, r.ok); new Notice(r.msg); } catch (e) { set('오류: ' + (e && e.message), false); new Notice('중복확인 오류: ' + (e && e.message)); } }));
     new Setting(containerEl).setName('오프라인 편집 잠금').setDesc('항상 켜짐 — 서버 연결이 끊기면 편집이 자동으로 잠깁니다(모바일=읽기 모드). 연결되면 자동 해제.');
     containerEl.createEl('h4', { text: '계정 (둘 다 공용)' });
-    text('아이디', 'CouchDB 계정 — 바꾼 뒤 「로그인」', 'username')
-      .addButton(b => b.setButtonText('로그인').setCta().onClick(async () => { set('로그인 중…'); new Notice('로그인 중…'); try { const r = await this.plugin.relogin(); set(r.msg, r.ok); new Notice(r.msg); } catch (e) { set('오류: ' + (e && e.message), false); new Notice('로그인 오류: ' + (e && e.message)); } }));
+    text('아이디', 'CouchDB 계정 — 바꾼 뒤 「로그인」', 'username');
     text('비밀번호', '', 'password', true);
+    new Setting(containerEl).setName('로그인').setDesc('아이디·비밀번호를 넣은 뒤 누르세요.')
+      .addButton(b => b.setButtonText('로그인').setCta().onClick(async () => { set('로그인 중…'); new Notice('로그인 중…'); try { const r = await this.plugin.relogin(); set(r.msg, r.ok); new Notice(r.msg); } catch (e) { set('오류: ' + (e && e.message), false); new Notice('로그인 오류: ' + (e && e.message)); } }));
 
     containerEl.createEl('h4', { text: '자동 업데이트' });
     new Setting(containerEl).setName('플러그인 자동 업데이트').setDesc('시작 시·인터넷 재연결 시 최신 버전으로 자동 반영(공개 repo). 별도 설정 불필요.')

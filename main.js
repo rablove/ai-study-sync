@@ -11414,7 +11414,9 @@ var SettingTab = class extends import_obsidian.PluginSettingTab {
     }));
     new import_obsidian.Setting(containerEl).setName("\uC624\uD504\uB77C\uC778 \uD3B8\uC9D1 \uC7A0\uAE08").setDesc("\uD56D\uC0C1 \uCF1C\uC9D0 \u2014 \uC11C\uBC84 \uC5F0\uACB0\uC774 \uB04A\uAE30\uBA74 \uD3B8\uC9D1\uC774 \uC790\uB3D9\uC73C\uB85C \uC7A0\uAE41\uB2C8\uB2E4(\uBAA8\uBC14\uC77C=\uC77D\uAE30 \uBAA8\uB4DC). \uC5F0\uACB0\uB418\uBA74 \uC790\uB3D9 \uD574\uC81C.");
     containerEl.createEl("h4", { text: "\uACC4\uC815 (\uB458 \uB2E4 \uACF5\uC6A9)" });
-    text2("\uC544\uC774\uB514", "CouchDB \uACC4\uC815 \u2014 \uBC14\uAFBC \uB4A4 \u300C\uB85C\uADF8\uC778\u300D", "username").addButton((b) => b.setButtonText("\uB85C\uADF8\uC778").setCta().onClick(async () => {
+    text2("\uC544\uC774\uB514", "CouchDB \uACC4\uC815 \u2014 \uBC14\uAFBC \uB4A4 \u300C\uB85C\uADF8\uC778\u300D", "username");
+    text2("\uBE44\uBC00\uBC88\uD638", "", "password", true);
+    new import_obsidian.Setting(containerEl).setName("\uB85C\uADF8\uC778").setDesc("\uC544\uC774\uB514\xB7\uBE44\uBC00\uBC88\uD638\uB97C \uB123\uC740 \uB4A4 \uB204\uB974\uC138\uC694.").addButton((b) => b.setButtonText("\uB85C\uADF8\uC778").setCta().onClick(async () => {
       set("\uB85C\uADF8\uC778 \uC911\u2026");
       new import_obsidian.Notice("\uB85C\uADF8\uC778 \uC911\u2026");
       try {
@@ -11426,7 +11428,6 @@ var SettingTab = class extends import_obsidian.PluginSettingTab {
         new import_obsidian.Notice("\uB85C\uADF8\uC778 \uC624\uB958: " + (e && e.message));
       }
     }));
-    text2("\uBE44\uBC00\uBC88\uD638", "", "password", true);
     containerEl.createEl("h4", { text: "\uC790\uB3D9 \uC5C5\uB370\uC774\uD2B8" });
     new import_obsidian.Setting(containerEl).setName("\uD50C\uB7EC\uADF8\uC778 \uC790\uB3D9 \uC5C5\uB370\uC774\uD2B8").setDesc("\uC2DC\uC791 \uC2DC\xB7\uC778\uD130\uB137 \uC7AC\uC5F0\uACB0 \uC2DC \uCD5C\uC2E0 \uBC84\uC804\uC73C\uB85C \uC790\uB3D9 \uBC18\uC601(\uACF5\uAC1C repo). \uBCC4\uB3C4 \uC124\uC815 \uBD88\uD544\uC694.").addToggle((t) => t.setValue(!!s.autoUpdate).onChange(async (v) => {
       s.autoUpdate = v;
