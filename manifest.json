@@ -1,7 +1,7 @@
 {
   "id": "ai-study-sync",
   "name": "AI Study Sync",
-  "version": "0.5.26",
+  "version": "0.5.27",
   "minAppVersion": "1.4.0",
   "description": "AI 스터디 공용 vault: CouchDB 파일 동기화 + Yjs 실시간 공동편집(원격 커서·따라가기). 저널 계정으로 로그인.",
   "author": "rablove",
